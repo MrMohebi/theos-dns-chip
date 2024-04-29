@@ -19,7 +19,7 @@
             flex-direction: column;
             align-items: center;
             background-color: #222222;
-            overflow: hidden;
+            overflow-x: hidden;
         }
 
         h1 {
@@ -127,7 +127,32 @@
         <input id='wifi_password' type='text' placeholder='p@ssw0rd' required>
     </div>
 </div>
-<a class='button' href='\'>Submit</a>
+<button class='button' onclick='onSubmit()'>Submit</button>
+
+
+<script>
+    function onSubmit() {
+        let formData = new FormData();
+        formData.append('serverIp', document.getElementById('server_ip').value);
+        formData.append('token', document.getElementById('token').value);
+        formData.append('ssid', document.getElementById('wifi_ssid').value);
+        formData.append('password', document.getElementById('wifi_password').value);
+
+
+        fetch('/saveSettings', {
+            method: 'POST',
+            body: formData
+        }).then((res)=>{
+            res.text().then(result=>{
+                alert(result);
+                if(result === 'ok'){
+                    document.body.innerHTML = 'Ok';
+                }
+            })
+        });
+    }
+</script>
+
 </body>
 </html>
 
