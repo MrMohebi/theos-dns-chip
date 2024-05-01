@@ -3,6 +3,7 @@
 #include <ESP8266WebServer.h>
 #include <String.h>
 #include <EEPROM.h>
+#include "./DNSServer.h"
 
 
 const char* AP_ssid     = "Theos_DNS";
@@ -17,6 +18,13 @@ struct {
     char server_ip[16] = "";
     char are_data_ok[3] = "ok";
 } settings;
+
+
+const byte        DNS_PORT = 53;          // Capture DNS requests on port 53
+IPAddress         apIP(10, 10, 10, 1);    // Private network for server
+DNSServer         dnsServer;              // Create the DNS object
+ESP8266WebServer  webServer(80);          // HTTP server
+
 
 
 ESP8266WebServer server(80);
@@ -47,8 +55,8 @@ void setup() {
 
   if(!has_wifi_or_connect()){
 
-    IPAddress local_ip(192,168,1,1);
-    IPAddress gateway(192,168,1,1);
+    IPAddress local_ip(10,90,90,10);
+    IPAddress gateway(10,90,90,10);
     IPAddress subnet(255,255,255,0);
 
     Serial.println("Setting AP (Access Point)…");

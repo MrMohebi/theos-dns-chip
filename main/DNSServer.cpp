@@ -1,6 +1,9 @@
 #include "./DNSServer.h"
 #include <lwip/def.h>
 #include <Arduino.h>
+#include <ESP8266HTTPClient.h>
+#include <WiFiClient.h>
+#include <String.h>
 
 #define DEBUG
 #define DEBUG_OUTPUT Serial
@@ -11,16 +14,16 @@ DNSServer::DNSServer()
   _errorReplyCode = DNSReplyCode::NonExistentDomain;
 }
 
-bool DNSServer::start(const uint16_t &port, const String &domainName,
-                     const IPAddress &resolvedIP)
+bool DNSServer::start(const uint16_t &port, string upstream_doh )
 {
   _port = port;
-  _domainName = domainName;
-  _resolvedIP[0] = resolvedIP[0];
-  _resolvedIP[1] = resolvedIP[1];
-  _resolvedIP[2] = resolvedIP[2];
-  _resolvedIP[3] = resolvedIP[3];
-  downcaseAndRemoveWwwPrefix(_domainName);
+  _upstream_doh = upstream_doh
+  // _domainName = domainName;
+  // _resolvedIP[0] = resolvedIP[0];
+  // _resolvedIP[1] = resolvedIP[1];
+  // _resolvedIP[2] = resolvedIP[2];
+  // _resolvedIP[3] = resolvedIP[3];
+  // downcaseAndRemoveWwwPrefix(_domainName);
   return _udp.begin(_port) == 1;
 }
 
@@ -107,6 +110,75 @@ String DNSServer::getDomainNameWithoutWwwPrefix()
       parsedDomainName += ".";
     }
   }
+}
+
+string DNSServer::askServerForIp(string url){
+  WiFiClient client;
+  HTTPClient http;
+  String serverPath = _upstream_doh + "/api/query";
+
+  http.begin(client, serverPath);
+  
+  http.addHeader("Content-Type", "application/json");
+
+  string httpRequestData = "{\"type\":\"A\",\"query\":\""
+  httpRequestData += url
+  httpRequestData += "\"}"
+
+  String payload = "{}"; 
+
+  int httpResponseCode = http.POST(httpRequestData);
+
+  if (httpResponseCode>0) {
+    payload = http.getString();
+  }
+  else {
+    DEBUG_OUTPUT.print("Error code: ");
+    DEBUG_OUTPUT.println(httpResponseCode);
+  }
+  http.end();
+
+  JSONVar res = JSON.parse(payload);
+
+  if (JSON.typeof(res) == "undefined") {
+    DEBUG_OUTPUT.println("Parsing input failed!");
+    return;
+  }
+
+  if (strcmp(res["returnCode"], "NOERROR") != 0){
+    DEBUG_OUTPUT.print("there is an error =>");
+    DEBUG_OUTPUT.println(payload);
+    return;
+  }
+
+  string result = res["response"]
+  string ip = getValueBetweenParentheses(result)
+
+  if(strlen(ip) < 4){
+    return;
+  }
+
+  return ip
+}
+
+string DNSServer::getVaeBetweenParentheses(string str){
+  size_t start_index = str.find("(") + 1;
+
+  // Check if opening parenthesis is found
+  if (start_index == String::npos) {
+    return "";
+  }
+
+  size_t end_index = str.find(")");
+
+  // Check if closing parenthesis is found
+  if (end_index == String::npos) {
+    return "";
+  }
+
+  string value = str.substr(start_index, end_index - start_index);
+
+  return value;
 }
 
 void DNSServer::replyWithIP()

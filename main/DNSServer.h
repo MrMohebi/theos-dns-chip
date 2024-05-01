@@ -1,6 +1,7 @@
 #ifndef DNSServer_h
 #define DNSServer_h
 #include <WiFiUdp.h>
+#include <String.h>
 
 #define DNS_QR_QUERY 0
 #define DNS_QR_RESPONSE 1
@@ -61,9 +62,14 @@ class DNSServer
     DNSHeader* _dnsHeader;
     uint32_t _ttl;
     DNSReplyCode _errorReplyCode;
+    string _upstream_doh;
+  
+
 
     void downcaseAndRemoveWwwPrefix(String &domainName);
     String getDomainNameWithoutWwwPrefix();
+    string getValueBetweenParentheses();
+    string askServerForIp();
     bool requestIncludesOnlyOneQuestion();
     void replyWithIP();
     void replyWithCustomCode();
