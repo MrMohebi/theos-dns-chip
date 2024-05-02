@@ -2,6 +2,13 @@
 #define DNSServer_h
 #include <WiFiUdp.h>
 #include <String.h>
+#include <lwip/def.h>
+#include <Arduino.h>
+#include <ESP8266HTTPClient.h>
+#include <WiFiClient.h>
+#include <Arduino_JSON.h>
+#include <WiFiClientSecureBearSSL.h>
+
 
 #define DNS_QR_QUERY 0
 #define DNS_QR_RESPONSE 1
@@ -47,10 +54,11 @@ class DNSServer
 
     // Returns true if successful, false if there are no sockets available
     bool start(const uint16_t &port,
-              const String &domainName,
-              const IPAddress &resolvedIP);
+              const String &upstream_doh);
     // stops the DNS server
     void stop();
+
+    String askServerForIp(String url);
 
   private:
     WiFiUDP _udp;
@@ -62,14 +70,14 @@ class DNSServer
     DNSHeader* _dnsHeader;
     uint32_t _ttl;
     DNSReplyCode _errorReplyCode;
-    string _upstream_doh;
+    String _upstream_doh;
   
 
 
     void downcaseAndRemoveWwwPrefix(String &domainName);
     String getDomainNameWithoutWwwPrefix();
-    string getValueBetweenParentheses();
-    string askServerForIp();
+    String getValueBetweenParentheses(String str);
+    // string askServerForIp(String url);
     bool requestIncludesOnlyOneQuestion();
     void replyWithIP();
     void replyWithCustomCode();

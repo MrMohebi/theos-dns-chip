@@ -21,14 +21,12 @@ struct {
 
 
 const byte        DNS_PORT = 53;          // Capture DNS requests on port 53
-IPAddress         apIP(10, 10, 10, 1);    // Private network for server
 DNSServer         dnsServer;              // Create the DNS object
-ESP8266WebServer  webServer(80);          // HTTP server
 
 
 
 ESP8266WebServer server(80);
-
+ESP8266WebServer  webServer(8080);          // HTTP server
 
 void handle_index();
 void handle_saveSettings();
@@ -37,6 +35,17 @@ void handle_notFound();
 
 bool has_wifi_or_connect();
 
+String responseHTML = "<!DOCTYPE html>"
+  "<html lang=\"en\">"
+  "<head>"
+    "<meta charset=\"utf-8\">"
+    "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
+    "<title>Internet of Bottles</title>"
+  "</head>"
+  "<body>"
+  "<p>I'm just a stupid bottle with WiFi.</p>"
+  "</body>"
+  "</html>";
 
 
 void setup() {
@@ -48,10 +57,12 @@ void setup() {
   unsigned int addr = 0;
   EEPROM.get(addr, settings);
 
-
-  Serial.println(settings.are_data_ok[0]);
-  Serial.println(settings.are_data_ok[1]);
   Serial.println(settings.server_ip);
+
+webServer.onNotFound([]() {
+    webServer.send(200, "text/html", responseHTML);
+  });
+  webServer.begin();
 
   if(!has_wifi_or_connect()){
 
@@ -74,13 +85,27 @@ void setup() {
 
   }else{
     Serial.println("wifi founded");
-  }
+
+    const String upstream_doh = "37.152.191.250:1443";
+    Serial.println("-------------------------");
+    bool t = dnsServer.start(DNS_PORT, upstream_doh);
+    if(t){
+      Serial.println("udp started");
+    }else{
+      Serial.println("udp wnt wrong");
+    }
+    String url = "google.com";
+    String ip = dnsServer.askServerForIp(url);
+    Serial.println(ip);
+    Serial.println("-------------------------");
+}
 }
 
 void loop() {
   if(!has_wifi_or_connect()){
     server.handleClient();
   }
+  dnsServer.processNextRequest();
 
 }
 
