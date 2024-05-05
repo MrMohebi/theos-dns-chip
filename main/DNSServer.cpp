@@ -45,23 +45,40 @@ void DNSServer::downcaseAndRemoveWwwPrefix(String &domainName)
   domainName.replace("www.", "");
 }
 
+
 void DNSServer::processNextRequest()
 {
   _currentPacketSize = _udp.parsePacket();
   if (_currentPacketSize)
   {
     DEBUG_OUTPUT.println("got new udp");
+    DEBUG_OUTPUT.println(_currentPacketSize);
 
     _buffer = (unsigned char*)malloc(_currentPacketSize * sizeof(char));
     _udp.read(_buffer, _currentPacketSize);
     _dnsHeader = (DNSHeader*) _buffer;
 
+    String hexstring = "";
+    for(int i = 0; i < _currentPacketSize; i++) {
+      if(_buffer[i] < 0x10) {
+        hexstring += '0';
+      }
+
+      hexstring += String(_buffer[i], HEX);
+    }
+
+
+    DEBUG_OUTPUT.println(result);
+    DEBUG_OUTPUT.println(hexstring);
+
     if (_dnsHeader->QR == DNS_QR_QUERY &&
         _dnsHeader->OPCode == DNS_OPCODE_QUERY &&
-        requestIncludesOnlyOneQuestion() &&
-        (_domainName == "*" || getDomainNameWithoutWwwPrefix() == _domainName)
+        requestIncludesOnlyOneQuestion()
        )
     {
+      
+      DEBUG_OUTPUT.println("aaaaaaaaaaaaaa");
+      DEBUG_OUTPUT.println(_dnsHeader->Queries);
       replyWithIP();
     }
     else if (_dnsHeader->QR == DNS_QR_QUERY)
@@ -75,10 +92,14 @@ void DNSServer::processNextRequest()
 
 bool DNSServer::requestIncludesOnlyOneQuestion()
 {
+  DEBUG_OUTPUT.println(ntohs(_dnsHeader->QDCount));
+DEBUG_OUTPUT.println(_dnsHeader->ANCount);
+DEBUG_OUTPUT.println(_dnsHeader->NSCount);
+DEBUG_OUTPUT.println(ntohs(_dnsHeader->ARCount));
   return ntohs(_dnsHeader->QDCount) == 1 &&
          _dnsHeader->ANCount == 0 &&
          _dnsHeader->NSCount == 0 &&
-         _dnsHeader->ARCount == 0;
+         ntohs(_dnsHeader->ARCount) == 0;
 }
 
 String DNSServer::getDomainNameWithoutWwwPrefix()

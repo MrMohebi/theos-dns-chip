@@ -26,7 +26,6 @@ DNSServer         dnsServer;              // Create the DNS object
 
 
 ESP8266WebServer server(80);
-ESP8266WebServer  webServer(8080);          // HTTP server
 
 void handle_index();
 void handle_saveSettings();
@@ -34,18 +33,6 @@ void handle_notFound();
 
 
 bool has_wifi_or_connect();
-
-String responseHTML = "<!DOCTYPE html>"
-  "<html lang=\"en\">"
-  "<head>"
-    "<meta charset=\"utf-8\">"
-    "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
-    "<title>Internet of Bottles</title>"
-  "</head>"
-  "<body>"
-  "<p>I'm just a stupid bottle with WiFi.</p>"
-  "</body>"
-  "</html>";
 
 
 void setup() {
@@ -59,10 +46,6 @@ void setup() {
 
   Serial.println(settings.server_ip);
 
-webServer.onNotFound([]() {
-    webServer.send(200, "text/html", responseHTML);
-  });
-  webServer.begin();
 
   if(!has_wifi_or_connect()){
 

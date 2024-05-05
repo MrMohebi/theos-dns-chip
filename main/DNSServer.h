@@ -42,6 +42,7 @@ struct DNSHeader
   uint16_t ANCount;          // number of answer entries
   uint16_t NSCount;          // number of authority entries
   uint16_t ARCount;          // number of resource entries
+  unsigned char Queries;
 };
 
 class DNSServer
@@ -63,7 +64,6 @@ class DNSServer
   private:
     WiFiUDP _udp;
     uint16_t _port;
-    String _domainName;
     unsigned char _resolvedIP[4];
     int _currentPacketSize;
     unsigned char* _buffer;
