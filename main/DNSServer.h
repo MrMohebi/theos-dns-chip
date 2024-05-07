@@ -3,7 +3,6 @@
 #include <WiFiUdp.h>
 #include <String.h>
 #include <lwip/def.h>
-#include <Arduino.h>
 #include <ESP8266HTTPClient.h>
 #include <WiFiClient.h>
 #include <Arduino_JSON.h>
@@ -73,13 +72,9 @@ class DNSServer
     String _upstream_doh;
   
 
-
-    void downcaseAndRemoveWwwPrefix(String &domainName);
-    String getDomainNameWithoutWwwPrefix();
-    String getValueBetweenParentheses(String str);
     // string askServerForIp(String url);
-    bool requestIncludesOnlyOneQuestion();
-    void replyWithIP();
+    void replyWithIP(IPAddress &ip);
     void replyWithCustomCode();
+    String getDomainNameWithoutWwwPrefix();
 };
 #endif
