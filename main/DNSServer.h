@@ -1,6 +1,6 @@
 #ifndef DNSServer_h
 #define DNSServer_h
-#include <WiFiUdp.h>
+#include <ESPAsyncUDP.h>
 #include <String.h>
 #include <lwip/def.h>
 #include <ESP8266HTTPClient.h>
@@ -13,7 +13,7 @@
 #define DNS_QR_RESPONSE 1
 #define DNS_OPCODE_QUERY 0
 
-enum class DNSReplyCode
+enum class DNSReplyCode : unsigned char
 {
   NoError = 0,
   FormError = 1,
@@ -31,7 +31,7 @@ struct DNSHeader
   uint16_t ID;               // identification number
   unsigned char RD : 1;      // recursion desired
   unsigned char TC : 1;      // truncated message
-  unsigned char AA : 1;      // authoritive answer
+  unsigned char AA : 1;      // authority answer
   unsigned char OPCode : 4;  // message_type
   unsigned char QR : 1;      // query/response flag
   unsigned char RCode : 4;   // response code
@@ -41,40 +41,33 @@ struct DNSHeader
   uint16_t ANCount;          // number of answer entries
   uint16_t NSCount;          // number of authority entries
   uint16_t ARCount;          // number of resource entries
-  unsigned char Queries;
 };
 
 class DNSServer
 {
   public:
     DNSServer();
-    void processNextRequest();
-    void setErrorReplyCode(const DNSReplyCode &replyCode);
     void setTTL(const uint32_t &ttl);
 
-    // Returns true if successful, false if there are no sockets available
-    bool start(const uint16_t &port,
-              const String &upstream_doh);
+    bool start(const uint16_t port, const String &upstream_doh);
     // stops the DNS server
     void stop();
 
-    String askServerForIp(String url);
 
   private:
-    WiFiUDP _udp;
-    uint16_t _port;
-    unsigned char _resolvedIP[4];
-    int _currentPacketSize;
-    unsigned char* _buffer;
-    DNSHeader* _dnsHeader;
+    AsyncUDP _udp;
     uint32_t _ttl;
-    DNSReplyCode _errorReplyCode;
+    DNSReplyCode _errorReplyCodeDefault;
     String _upstream_doh;
-  
 
-    // string askServerForIp(String url);
-    void replyWithIP(IPAddress &ip);
-    void replyWithCustomCode();
-    String getDomainNameWithoutWwwPrefix();
+    bool requestIncludesOnlyOneAQuestion(AsyncUDPPacket &packet, size_t _qnameLength);
+    String getDomainNameWithoutWwwPrefix(unsigned char *start, size_t & _qnameLength);
+    String askServerForIp(String url);
+    String getValueBetweenParentheses(String str);
+    void downCaseAndRemoveWwwPrefix(String &domainName);
+    void processRequest(AsyncUDPPacket &packet);
+    void replyWithIP(AsyncUDPPacket &packet, IPAddress &resolvedIP, size_t &_qnameLength);
+    void replyWithCustomCode(AsyncUDPPacket &packet, size_t &_qnameLength, DNSReplyCode replyCode = DNSReplyCode::NonExistentDomain);
+
 };
 #endif
