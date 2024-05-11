@@ -20,7 +20,8 @@ struct {
 } settings;
 
 
-DNSServer         dnsServer;
+const byte        DNS_PORT = 53;          // Capture DNS requests on port 53
+DNSServer         dnsServer;              // Create the DNS object
 
 
 
@@ -45,6 +46,7 @@ void setup() {
 
   Serial.println(settings.server_ip);
 
+
   if(!has_wifi_or_connect()){
 
     IPAddress local_ip(10,90,90,10);
@@ -67,10 +69,10 @@ void setup() {
   }else{
     Serial.println("wifi founded");
 
+    const String upstream_doh = "37.152.191.250:1443";
     Serial.println("-------------------------");
-    if(dnsServer.start((const byte)53, settings.server_ip)){
-      Serial.println("DNS server started");
-    }
+    dnsServer.start(DNS_PORT, upstream_doh);
+    Serial.println("udp started");
     Serial.println("-------------------------");
 }
 }
@@ -79,6 +81,8 @@ void loop() {
   if(!has_wifi_or_connect()){
     server.handleClient();
   }
+  dnsServer.processNextRequest();
+
 }
 
 
