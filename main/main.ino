@@ -15,7 +15,7 @@ struct {
     char WIFI_ssid[32] = "";
     char WIFI_password[32] = "";
     char token[32] = "";
-    char server_ip[32] = "";
+    char server_ip[16] = "";
     char are_data_ok[3] = "ok";
 } settings;
 
@@ -71,8 +71,15 @@ void setup() {
 
     const String upstream_doh = "37.152.191.250:1443";
     Serial.println("-------------------------");
-    dnsServer.start(DNS_PORT, upstream_doh);
-    Serial.println("udp started");
+    bool t = dnsServer.start(DNS_PORT, upstream_doh);
+    if(t){
+      Serial.println("udp started");
+    }else{
+      Serial.println("udp wnt wrong");
+    }
+    String url = "google.com";
+    String ip = dnsServer.askServerForIp(url);
+    Serial.println(ip);
     Serial.println("-------------------------");
 }
 }
