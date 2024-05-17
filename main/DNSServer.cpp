@@ -1,138 +1,237 @@
 #include "./DNSServer.h"
 
 
-
-#define DEBUG
 #define DEBUG_OUTPUT Serial
 
-DNSServer::DNSServer()
-{
+#define SIZECLASS 2
+#define SIZETYPE 2
+#define DATALENGTH 4
+
+
+DNSServer::DNSServer() {
   _ttl = htonl(60);
-  _errorReplyCode = DNSReplyCode::NonExistentDomain;
 }
 
-bool DNSServer::start(const uint16_t &port, const String &upstream_doh )
-{
-  _port = port;
+bool DNSServer::start(const uint16_t port, const String &upstream_doh) {
   _upstream_doh = upstream_doh;
-  // _domainName = domainName;
-  // _resolvedIP[0] = resolvedIP[0];
-  // _resolvedIP[1] = resolvedIP[1];
-  // _resolvedIP[2] = resolvedIP[2];
-  // _resolvedIP[3] = resolvedIP[3];
-  // downcaseAndRemoveWwwPrefix(_domainName);
-  return _udp.begin(_port) == 1;
+  if (_udp.listen(port)) {
+    _udp.onPacket(
+            [&](AsyncUDPPacket &packet) {
+              this->processRequest(packet);
+            }
+    );
+    return true;
+  }
+  return false;
 }
 
-void DNSServer::setErrorReplyCode(const DNSReplyCode &replyCode)
-{
-  _errorReplyCode = replyCode;
-}
-
-void DNSServer::setTTL(const uint32_t &ttl)
-{
+void DNSServer::setTTL(const uint32_t &ttl) {
   _ttl = htonl(ttl);
 }
 
-void DNSServer::stop()
-{
-  _udp.stop();
+void DNSServer::stop() {
+  _udp.close();
 }
 
-void DNSServer::downcaseAndRemoveWwwPrefix(String &domainName)
-{
+
+void DNSServer::processRequest(AsyncUDPPacket &packet) {
+  if (packet.length() >= sizeof(DNSHeader)) {
+    unsigned char *_buffer = packet.data();
+    DNSHeader *_dnsHeader = (DNSHeader *) _buffer;
+    size_t qnameLength = 0;
+
+    String domainNameWithoutWwwPrefix = (_buffer == nullptr ? "" : getDomainNameWithoutWwwPrefix(
+            _buffer + sizeof(DNSHeader), qnameLength));
+
+    if (_dnsHeader->QR == DNS_QR_QUERY &&
+        _dnsHeader->OPCode == DNS_OPCODE_QUERY &&
+        requestIncludesOnlyOneAQuestion(packet, qnameLength) &&
+        domainNameWithoutWwwPrefix.length() > 1
+            ) {
+
+      String ipStr = askServerForIp(domainNameWithoutWwwPrefix);
+
+      if (ipStr.length() > 4) {
+        IPAddress resolvedIP;
+        resolvedIP.fromString(ipStr);
+
+        replyWithIP(packet, resolvedIP, qnameLength);
+
+      } else {
+        replyWithCustomCode(packet, qnameLength, DNSReplyCode::NonExistentDomain);
+      }
+
+    } else if (_dnsHeader->QR == DNS_QR_QUERY) {
+      replyWithCustomCode(packet, qnameLength, DNSReplyCode::Refused);
+    }
+  }
+}
+
+
+void DNSServer::replyWithIP(AsyncUDPPacket &packet, IPAddress &resolvedIP, size_t &_qnameLength) {
+  unsigned char paresedResolvedIP[4];
+  paresedResolvedIP[0] = resolvedIP[0];
+  paresedResolvedIP[1] = resolvedIP[1];
+  paresedResolvedIP[2] = resolvedIP[2];
+  paresedResolvedIP[3] = resolvedIP[3];
+
+
+  // DNS Header + qname + Type +  Class + qnamePointer  + TYPE + CLASS + TTL + Datalength ) IP
+  // sizeof(DNSHeader) + _qnameLength  + 2*SIZECLASS +2*SIZETYPE + sizeof(_ttl) + DATLENTHG + sizeof(_resolvedIP)
+  AsyncUDPMessage msg(sizeof(DNSHeader) + _qnameLength + 2 * SIZECLASS + 2 * SIZETYPE + sizeof(_ttl) + DATALENGTH +
+                      sizeof(paresedResolvedIP));
+
+  msg.write(packet.data(), sizeof(DNSHeader) + _qnameLength + 4); // Question Section included.
+  DNSHeader *_dnsHeader = (DNSHeader *) msg.data();
+
+  _dnsHeader->QR = DNS_QR_RESPONSE;
+  _dnsHeader->ANCount = htons(1);
+  _dnsHeader->QDCount = _dnsHeader->QDCount;
+  _dnsHeader->ARCount = 0;
+
+  msg.write((uint8_t) 192); //  answer name is a pointer
+  msg.write((uint8_t) 12);  // pointer to offset at 0x00c
+
+  msg.write((uint8_t) 0);   // 0x0001  answer is type A query (host address)
+  msg.write((uint8_t) 1);
+
+  msg.write((uint8_t) 0);   //0x0001 answer is class IN (internet address)
+  msg.write((uint8_t) 1);
+
+  msg.write((uint8_t * ) & _ttl, sizeof(_ttl));
+
+  // Length of RData is 4 bytes (because, in this case, RData is IPv4)
+  msg.write((uint8_t) 0);
+  msg.write((uint8_t) 4);
+  msg.write(paresedResolvedIP, sizeof(paresedResolvedIP));
+
+  packet.send(msg);
+
+}
+
+void DNSServer::replyWithCustomCode(AsyncUDPPacket &packet, size_t &_qnameLength, DNSReplyCode replyCode) {
+  AsyncUDPMessage msg(sizeof(DNSHeader));
+
+  msg.write(packet.data(), sizeof(DNSHeader)); // Question Section included.
+  DNSHeader *_dnsHeader = (DNSHeader *) msg.data();
+
+  _dnsHeader->QR = DNS_QR_RESPONSE;
+  _dnsHeader->RCode = (unsigned char) replyCode;
+  _dnsHeader->QDCount = 0;
+  _dnsHeader->ARCount = 0;
+
+  packet.send(msg);
+}
+
+String DNSServer::askServerForIp(String url) {
+  WiFiClientSecure *client = new WiFiClientSecure;
+
+  // Ignore SSL certificate validation
+  client->setInsecure();
+
+  HTTPClient http;
+  String serverPath = "https://" + _upstream_doh + "/api/query";
+
+  http.begin(*client, serverPath);
+
+  http.addHeader("Content-Type", "application/json");
+
+  String httpRequestData = "{\"type\":\"A\",\"query\":\"";
+  httpRequestData += url;
+  httpRequestData += "\"}";
+
+  String payload = "{}";
+
+  int httpResponseCode = http.POST(httpRequestData);
+
+  if (httpResponseCode > 0) {
+    if (httpResponseCode == HTTP_CODE_OK || httpResponseCode == HTTP_CODE_MOVED_PERMANENTLY) {
+      payload = http.getString();
+    }
+  } else {
+    DEBUG_OUTPUT.println(serverPath);
+    DEBUG_OUTPUT.println(httpRequestData);
+    DEBUG_OUTPUT.print("Error code: ");
+    DEBUG_OUTPUT.println(httpResponseCode);
+    return "";
+  }
+  http.end();
+
+  JSONVar res = JSON.parse(payload);
+
+  if (JSON.typeof(res) == "undefined") {
+    DEBUG_OUTPUT.println(payload);
+    DEBUG_OUTPUT.println("Parsing input failed!");
+    return "";
+  }
+
+  if (strcmp(res["returnCode"], "NOERROR") != 0) {
+    DEBUG_OUTPUT.print("there is an error =>");
+    DEBUG_OUTPUT.println(payload);
+    return "";
+  }
+
+  String result = res["response"];
+  String ip = getValueBetweenParentheses(result);
+
+  if (ip.length() < 4) {
+    return "";
+  }
+
+  return ip;
+}
+
+
+bool DNSServer::requestIncludesOnlyOneAQuestion(AsyncUDPPacket &packet, size_t _qnameLength) {
+  unsigned char *_buffer = packet.data();
+  DNSHeader *_dnsHeader = (DNSHeader *) _buffer;
+  unsigned char *_startQname = _buffer + sizeof(DNSHeader);
+
+  if (ntohs(_dnsHeader->QDCount) == 1 &&
+      _dnsHeader->ANCount == 0 &&
+      _dnsHeader->NSCount == 0) {
+    // Test if we are dealing with a QTYPE== A
+    u_int16_t qtype = *(_startQname + _qnameLength + 1); // we need to skip the closing label length
+    if (qtype != 0x0001) { // Not an A type query
+      return false;
+    }
+    if (_dnsHeader->ARCount == 0) {
+
+      return true;
+    } else if (ntohs(_dnsHeader->ARCount) == 1) {
+
+      // test if the Additional Section RR is of type EDNS
+      unsigned char *_startADSection =
+              _startQname + _qnameLength + 4; //skipping the TYPE AND CLASS values of the Query Section
+      // The EDNS pack must have a 0 lentght domain name followed by type 41
+      if (*_startADSection != 0) //protocol violation for OPT record
+      {
+        return false;
+      }
+      _startADSection++;
+
+      uint16_t *dnsType = (uint16_t *) _startADSection;
+
+      if (ntohs(*dnsType) != 41) // something else than OPT/EDNS lives in the Additional section
+      {
+        return false;
+      }
+
+      return true;
+    } else { // AR Count != 0 or 1
+      return false;
+    }
+  } else { // QDcount != 1 || ANcount !=0 || NSCount !=0
+    return false;
+  }
+}
+
+void DNSServer::downCaseAndRemoveWwwPrefix(String &domainName) {
   domainName.toLowerCase();
   domainName.replace("www.", "");
 }
 
-
-void DNSServer::processNextRequest()
-{
-  _currentPacketSize = _udp.parsePacket();
-  if (_currentPacketSize)
-  {
-    DEBUG_OUTPUT.println("got new udp");
-    DEBUG_OUTPUT.println(_currentPacketSize);
-
-    _buffer = (unsigned char*)malloc(_currentPacketSize * sizeof(char));
-    _udp.read(_buffer, _currentPacketSize);
-    _dnsHeader = (DNSHeader*) _buffer;
-
-    String hexstring = "";
-    for(int i = 0; i < _currentPacketSize; i++) {
-      if(_buffer[i] < 0x10) {
-        hexstring += '0';
-      }
-
-      hexstring += String(_buffer[i], HEX);
-    }
-
-
-    DEBUG_OUTPUT.println(result);
-    DEBUG_OUTPUT.println(hexstring);
-
-    if (_dnsHeader->QR == DNS_QR_QUERY &&
-        _dnsHeader->OPCode == DNS_OPCODE_QUERY &&
-        requestIncludesOnlyOneQuestion()
-       )
-    {
-      
-      DEBUG_OUTPUT.println("aaaaaaaaaaaaaa");
-      DEBUG_OUTPUT.println(_dnsHeader->Queries);
-      replyWithIP();
-    }
-    else if (_dnsHeader->QR == DNS_QR_QUERY)
-    {
-      replyWithCustomCode();
-    }
-
-    free(_buffer);
-  }
-}
-
-bool DNSServer::requestIncludesOnlyOneQuestion()
-{
-  DEBUG_OUTPUT.println(ntohs(_dnsHeader->QDCount));
-DEBUG_OUTPUT.println(_dnsHeader->ANCount);
-DEBUG_OUTPUT.println(_dnsHeader->NSCount);
-DEBUG_OUTPUT.println(ntohs(_dnsHeader->ARCount));
-  return ntohs(_dnsHeader->QDCount) == 1 &&
-         _dnsHeader->ANCount == 0 &&
-         _dnsHeader->NSCount == 0 &&
-         ntohs(_dnsHeader->ARCount) == 0;
-}
-
-String DNSServer::getDomainNameWithoutWwwPrefix()
-{
-  String parsedDomainName = "";
-  unsigned char *start = _buffer + 12;
-  if (*start == 0)
-  {
-    return parsedDomainName;
-  }
-  int pos = 0;
-  while(true)
-  {
-    unsigned char labelLength = *(start + pos);
-    for(int i = 0; i < labelLength; i++)
-    {
-      pos++;
-      parsedDomainName += (char)*(start + pos);
-    }
-    pos++;
-    if (*(start + pos) == 0)
-    {
-      downcaseAndRemoveWwwPrefix(parsedDomainName);
-      return parsedDomainName;
-    }
-    else
-    {
-      parsedDomainName += ".";
-    }
-  }
-}
-
-String DNSServer::getValueBetweenParentheses(String str){
+String DNSServer::getValueBetweenParentheses(String str) {
   size_t start_index = str.indexOf("(") + 1;
 
   // Check if opening parenthesis is found
@@ -152,117 +251,33 @@ String DNSServer::getValueBetweenParentheses(String str){
   return value;
 }
 
-String DNSServer::askServerForIp(String url){
-  std::unique_ptr<BearSSL::WiFiClientSecure>client(new BearSSL::WiFiClientSecure);
 
-  // Ignore SSL certificate validation
-  client->setInsecure();
+String DNSServer::getDomainNameWithoutWwwPrefix(unsigned char *start, size_t &_qnameLength) {
+  String parsedDomainName = "";
+  if (start == nullptr || *start == 0) {
+    _qnameLength = 0;
+    return parsedDomainName;
+  }
+  int pos = 0;
+  while (true) {
+    unsigned char labelLength = *(start + pos);
+    for (int i = 0; i < labelLength; i++) {
+      pos++;
+      parsedDomainName += (char) *(start + pos);
+    }
+    pos++;
+    if (pos > 254) {
+      // failsafe, A DNAME may not be longer than 255 octets RFC1035 3.1
+      _qnameLength = 1; // DNAME is a zero length byte
+      return "";
+    }
+    if (*(start + pos) == 0) {
+      _qnameLength = (size_t)(pos) + 1;  // We need to add the clossing label to the length
+      downCaseAndRemoveWwwPrefix(parsedDomainName);
 
-  HTTPClient http;
-  String serverPath = "https://" + _upstream_doh + "/api/query";
-
-  http.begin(*client, serverPath);
-  
-  http.addHeader("Content-Type", "application/json");
-
-  String httpRequestData = "{\"type\":\"A\",\"query\":\"";
-  httpRequestData += url;
-  httpRequestData += "\"}";
-
-  String payload = "{}"; 
-
-  int httpResponseCode = http.POST(httpRequestData);
-
-  if (httpResponseCode>0) {
-    if (httpResponseCode == HTTP_CODE_OK || httpResponseCode == HTTP_CODE_MOVED_PERMANENTLY) {
-          payload = http.getString();
+      return parsedDomainName;
+    } else {
+      parsedDomainName += ".";
     }
   }
-  else {
-    DEBUG_OUTPUT.println(serverPath);
-    DEBUG_OUTPUT.println(httpRequestData);
-    DEBUG_OUTPUT.print("Error code: ");
-    DEBUG_OUTPUT.println(httpResponseCode);
-    return "";
-  }
-  http.end();
-
-  JSONVar res = JSON.parse(payload);
-
-  if (JSON.typeof(res) == "undefined") {
-    DEBUG_OUTPUT.println(payload);
-    DEBUG_OUTPUT.println("Parsing input failed!");
-    return "";
-  }
-
-  if (strcmp(res["returnCode"], "NOERROR") != 0){
-    DEBUG_OUTPUT.print("there is an error =>");
-    DEBUG_OUTPUT.println(payload);
-    return "";
-  }
-
-  String result = res["response"];
-  String ip = getValueBetweenParentheses(result);
-
-  if(ip.length() < 4){
-    return "";
-  }
-
-  return ip;
-}
-
-
-
-void DNSServer::replyWithIP()
-{
-  _dnsHeader->QR = DNS_QR_RESPONSE;
-  _dnsHeader->ANCount = _dnsHeader->QDCount;
-  _dnsHeader->QDCount = _dnsHeader->QDCount; 
-  //_dnsHeader->RA = 1;  
-
-  _udp.beginPacket(_udp.remoteIP(), _udp.remotePort());
-  _udp.write(_buffer, _currentPacketSize);
-
-  _udp.write((uint8_t)192); //  answer name is a pointer
-  _udp.write((uint8_t)12);  // pointer to offset at 0x00c
-
-  _udp.write((uint8_t)0);   // 0x0001  answer is type A query (host address)
-  _udp.write((uint8_t)1);
-
-  _udp.write((uint8_t)0);   //0x0001 answer is class IN (internet address)
-  _udp.write((uint8_t)1);
- 
-  _udp.write((unsigned char*)&_ttl, 4);
-
-  // Length of RData is 4 bytes (because, in this case, RData is IPv4)
-  _udp.write((uint8_t)0);
-  _udp.write((uint8_t)4);
-  _udp.write(_resolvedIP, sizeof(_resolvedIP));
-  _udp.endPacket();
-
-
-
-  #ifdef DEBUG
-    DEBUG_OUTPUT.print("DNS responds: ");
-    DEBUG_OUTPUT.print(_resolvedIP[0]);
-    DEBUG_OUTPUT.print(".");
-    DEBUG_OUTPUT.print(_resolvedIP[1]);
-    DEBUG_OUTPUT.print(".");
-    DEBUG_OUTPUT.print(_resolvedIP[2]);
-    DEBUG_OUTPUT.print(".");
-    DEBUG_OUTPUT.print(_resolvedIP[3]);
-    DEBUG_OUTPUT.print(" for ");
-    DEBUG_OUTPUT.println(getDomainNameWithoutWwwPrefix());
-  #endif
-}
-
-void DNSServer::replyWithCustomCode()
-{
-  _dnsHeader->QR = DNS_QR_RESPONSE;
-  _dnsHeader->RCode = (unsigned char)_errorReplyCode;
-  _dnsHeader->QDCount = 0;
-
-  _udp.beginPacket(_udp.remoteIP(), _udp.remotePort());
-  _udp.write(_buffer, sizeof(DNSHeader));
-  _udp.endPacket();
 }
