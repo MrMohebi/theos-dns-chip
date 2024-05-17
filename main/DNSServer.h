@@ -1,12 +1,11 @@
 #ifndef DNSServer_h
 #define DNSServer_h
-#include <ESPAsyncUDP.h>
 #include <String.h>
 #include <lwip/def.h>
-#include <ESP8266HTTPClient.h>
-#include <WiFiClient.h>
 #include <Arduino_JSON.h>
-#include <WiFiClientSecureBearSSL.h>
+#include <AsyncUDP.h>
+#include <WiFiClientSecure.h>
+#include <HTTPClient.h>
 
 
 #define DNS_QR_QUERY 0
