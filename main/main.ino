@@ -3,6 +3,7 @@
 #include <WebServer.h>
 #include <String.h>
 #include <EEPROM.h>
+#include <HTTPClient.h>
 #include "./DNSServer.h"
 
 
@@ -15,15 +16,21 @@ struct {
   char WIFI_ssid[32] = "";
   char WIFI_password[32] = "";
   char token[32] = "";
-  char server_ip[32] = "";
+  char server_ip[32] = ""; // with port of https dns server, example: 10.10.10.10:1443
   char are_data_ok[3] = "ok";
-} settings;
+} _settings;
+
+IPAddress _serverIp;
+
+DNSServer _dnsServer;
+
+const char *_serverAuthPort = "8005";
+const char *_serverIpAskPort = "1234";
+
+IPAddress _lastClinetIp;
 
 
-DNSServer dnsServer;
-
-
-WebServer server(80);
+WebServer _server(80);
 
 void handle_index();
 
@@ -35,16 +42,22 @@ void handle_notFound();
 bool has_wifi_or_connect();
 
 
+const char *prepareServerName(const char *port);
+
+String localIp();
+
+String announceServerMyIp();
+
 void setup() {
   Serial.begin(115200);
   Serial.println("\n\n\n");
   delay(100);
 
-  EEPROM.begin(sizeof(settings));
+  EEPROM.begin(sizeof(_settings));
   unsigned int addr = 0;
-  EEPROM.get(addr, settings);
+  EEPROM.get(addr, _settings);
 
-  Serial.println(settings.server_ip);
+  Serial.println(_settings.server_ip);
 
   if (!has_wifi_or_connect()) {
 
@@ -57,66 +70,145 @@ void setup() {
     WiFi.softAPConfig(local_ip, gateway, subnet);
     delay(100);
 
-    server.on("/", HTTP_GET, handle_index);
-    server.on("/saveSettings", HTTP_POST, handle_saveSettings);
+    _server.on("/", HTTP_GET, handle_index);
+    _server.on("/saveSettings", HTTP_POST, handle_saveSettings);
 
-    server.onNotFound(handle_notFound);
+    _server.onNotFound(handle_notFound);
 
-    server.begin();
+    _server.begin();
     Serial.println("HTTP server started");
 
   } else {
     Serial.println("wifi founded");
 
     Serial.println("-------------------------");
-    if (dnsServer.start((const byte) 53, settings.server_ip)) {
+    if (_dnsServer.start((const byte) 53, _settings.server_ip)) {
       Serial.println("DNS server started");
     }
     Serial.println("-------------------------");
+
+    String serverDnsAddress = String(_settings.server_ip);
+    String serverIp = serverDnsAddress.substring(0, serverDnsAddress.indexOf(":"));
+    _serverIp.fromString(serverIp);
   }
 }
 
 void loop() {
   if (!has_wifi_or_connect()) {
-    server.handleClient();
+    _server.handleClient();
+  } else {
+    IPAddress myIp;
+    myIp.fromString(localIp());
+
+    if (_lastClinetIp != myIp) {
+      String res = announceServerMyIp(myIp);
+      if (res == "already added" || res == "added") {
+        _lastClinetIp.fromString(myIp.toString());
+        Serial.println("my ip is Saved and is authorized");
+      }
+    }
+
+    sleep(30);
   }
+}
+
+const char *prepareServerName(const char *port) {
+  char *serverName;
+  serverName = (char *) malloc(
+          strlen((const char *) "http://") + strlen(_serverIp.toString().c_str()) + strlen((const char *) ":") +
+          strlen(port) + 1);
+  strcpy(serverName, (const char *) "http://");
+  strcat(serverName, _serverIp.toString().c_str());
+  strcat(serverName, (const char *) ":");
+  strcat(serverName, port);
+
+  return (const char *) serverName;
+}
+
+
+String announceServerMyIp(IPAddress &newIp) {
+  const char *baseServerName = prepareServerName(_serverAuthPort);
+  String pathAndParams = "/tap-in?token=" + String(_settings.token) + "&ip=" + newIp.toString();
+  String serverName = String(baseServerName) + pathAndParams;
+
+  Serial.println(serverName);
+
+  HTTPClient http;
+  http.begin(serverName.c_str());
+
+  int httpResponseCode = http.GET();
+
+  String payload = "";
+  if (httpResponseCode > 0) {
+    payload = http.getString();
+  } else {
+    Serial.print("Error code to announce new ip: ");
+    Serial.println(httpResponseCode);
+  }
+
+  http.end();
+
+  return payload;
+}
+
+
+String localIp() {
+  const char *serverName = prepareServerName(_serverIpAskPort);
+
+  HTTPClient http;
+  http.begin(serverName);
+
+  int httpResponseCode = http.GET();
+
+  String payload = "";
+  if (httpResponseCode > 0) {
+    payload = http.getString();
+  } else {
+    Serial.print("Error code to get local ip: ");
+    Serial.println(httpResponseCode);
+  }
+
+  http.end();
+
+  return payload;
 }
 
 
 // ---------------  web server stuff ----------------
 void handle_notFound() {
-  server.send(404, "text/plain", "Not found");
+  _server.send(404, "text/plain", "Not found");
 }
 
 void handle_index() {
   String index = "<!DOCTYPE html> <html lang='en'> <head> <meta charset='UTF-8'> <title>Theos DNS</title> <style> html { font-family: Helvetica, sans-serif; display: inline-block; margin: 0 auto; text-align: center; color: #a9a9a9; } body { font-size: 3rem; display: flex; flex-direction: column; align-items: center; background-color: #222222; overflow-x: hidden; } h1 { color: #a9a9a9; margin: 50px auto 30px; } h3 { color: #a9a9a9; margin-bottom: 50px; } p { font-size: 14px; color: #888; margin-bottom: 10px; } .button { display: block; width: 200px; background-color: #1abc9c; border: none; color: white; padding: 13px 30px; text-decoration: none; font-size: 2rem; margin: 0 auto 35px; cursor: pointer; border-radius: 4px; } input[type=text] { border: 2px solid #aaa; border-radius: 4px; margin: 8px 0; outline: none; padding: 8px; box-sizing: border-box; transition: .3s; background: #222222; color: #a9a9a9; font-size: 2.5rem; max-width: 500px; width: 500px; } input[type=text]:focus { border-color: #1abc9c; box-shadow: 0 0 8px 0 #1abc9c; } .content-center-row { display: flex; flex-direction: row; align-content: center; justify-content: center; } label { white-space: nowrap; text-align: center; display: flex; align-items: center; width: 100%; font-size: 2rem; } .space-x-4 > * { margin-right: 1rem; } a{ color: #1abc9c; } </style> </head> <body> <h1>Theos DNS</h1> <h3> <span>Support: </span> <a target='_blank' href='https://t.me/theos_dns'>@theos_dns</a> </h3> <div style='width: 90%;margin-bottom: 100px'> <div class='content-center-row space-x-4' style='margin-bottom: 10px'> <label for='server_ip'>Server IP:</label> <input id='server_ip' type='text' placeholder='111.111.111.111' required> </div> <div class='content-center-row space-x-4' style='margin-bottom: 10px'> <label for='token'>Token:</label> <input id='token' type='text' placeholder='xxxxxxxxxxxxxx' required> </div> <div class='content-center-row space-x-4' style='margin-bottom: 10px'> <label for='wifi_ssid'>Wifi ssid:</label> <input id='wifi_ssid' type='text' placeholder='my wifi' required> </div> <div class='content-center-row space-x-4' style=''> <label for='wifi_password'>Wifi Password:</label> <input id='wifi_password' type='text' placeholder='p@ssw0rd' required> </div> </div> <button class='button' onclick='onSubmit()'>Submit</button> <script> function onSubmit() { let formData = new FormData(); formData.append('serverIp', document.getElementById('server_ip').value); formData.append('token', document.getElementById('token').value); formData.append('ssid', document.getElementById('wifi_ssid').value); formData.append('password', document.getElementById('wifi_password').value); fetch('/saveSettings', { method: 'POST', body: formData }).then((res)=>{ res.text().then(result=>{ alert(result); if(result === 'ok'){ document.body.innerHTML = 'Ok'; } }) }); } </script> </body> </html>";
-  server.send(200, "text/html", index);
+  _server.send(200, "text/html", index);
 }
 
 void handle_saveSettings() {
   if (
-          !server.hasArg("token") || !server.hasArg("serverIp") || !server.hasArg("ssid") || !server.hasArg("ssid") ||
-          server.arg("token") == NULL || server.arg("serverIp") == NULL || server.arg("ssid") == NULL ||
-          server.arg("password") == NULL ||
-          sizeof(server.arg("token")) >= 32 || sizeof(server.arg("serverIp")) >= 32 ||
-          sizeof(server.arg("ssid")) >= 32 || sizeof(server.arg("password")) >= 32
+          !_server.hasArg("token") || !_server.hasArg("serverIp") || !_server.hasArg("ssid") ||
+          !_server.hasArg("ssid") ||
+          _server.arg("token") == NULL || _server.arg("serverIp") == NULL || _server.arg("ssid") == NULL ||
+          _server.arg("password") == NULL ||
+          sizeof(_server.arg("token")) >= 32 || sizeof(_server.arg("serverIp")) >= 32 ||
+          sizeof(_server.arg("ssid")) >= 32 || sizeof(_server.arg("password")) >= 32
           ) {
-    server.send(400, "text/plain", "400: Invalid Request");
+    _server.send(400, "text/plain", "400: Invalid Request");
     return;
   }
-  strcpy(settings.server_ip, server.arg("serverIp").c_str());
-  strcpy(settings.token, server.arg("token").c_str());
-  strcpy(settings.WIFI_ssid, server.arg("ssid").c_str());
-  strcpy(settings.WIFI_password, server.arg("password").c_str());
+  strcpy(_settings.server_ip, _server.arg("serverIp").c_str());
+  strcpy(_settings.token, _server.arg("token").c_str());
+  strcpy(_settings.WIFI_ssid, _server.arg("ssid").c_str());
+  strcpy(_settings.WIFI_password, _server.arg("password").c_str());
 
-  strncpy(settings.are_data_ok, "ok", sizeof("ok"));
+  strncpy(_settings.are_data_ok, "ok", sizeof("ok"));
 
   unsigned int addr = 0;
-  EEPROM.put(addr, settings);
+  EEPROM.put(addr, _settings);
   EEPROM.commit();
   Serial.println("settings has been saved");
 
-  server.send(200, "text/plain", "ok");
+  _server.send(200, "text/plain", "ok");
   delay(1000);
 
   ESP.restart();
@@ -125,16 +217,16 @@ void handle_saveSettings() {
 
 
 bool has_wifi_or_connect() {
-  if (!(settings.are_data_ok[0] == 'o' && settings.are_data_ok[1] == 'k')) {
+  if (!(_settings.are_data_ok[0] == 'o' && _settings.are_data_ok[1] == 'k')) {
     return false;
   }
   if (IS_CONNECTED_TO_WIFI) {
     return true;
   }
 
-  WiFi.begin(settings.WIFI_ssid, settings.WIFI_password);
+  WiFi.begin(_settings.WIFI_ssid, _settings.WIFI_password);
   Serial.print("Connecting to ");
-  Serial.print(settings.WIFI_ssid);
+  Serial.print(_settings.WIFI_ssid);
   Serial.println(" ...");
 
   int i = 0;
@@ -155,7 +247,7 @@ bool has_wifi_or_connect() {
     Serial.println('\n');
     Serial.println("Couldn't establish connection!");
 
-    strncpy(settings.are_data_ok, "no", sizeof("no"));
+    strncpy(_settings.are_data_ok, "no", sizeof("no"));
   }
 
   return false;
