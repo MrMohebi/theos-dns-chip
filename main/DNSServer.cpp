@@ -1,5 +1,6 @@
 #include "./DNSServer.h"
-
+#include "coap-simple.h"
+#include <cppQueue.h>
 
 #define DEBUG_OUTPUT Serial
 
@@ -8,9 +9,27 @@
 #define DATALENGTH 4
 
 
-DNSServer::DNSServer() {
-  _ttl = htonl(60);
+void callback_response(CoapPacket &packet, IPAddress ip, int port) {
+  Serial.println("[Coap Response got]");
+  
+  char p[packet.payloadlen + 1];
+  memcpy(p, packet.payload, packet.payloadlen);
+  p[packet.payloadlen] = NULL;
+
+  Serial.println(p);
 }
+
+
+DNSServer::DNSServer() {
+  WiFiUDP udp;
+
+  _ttl = htonl(60);
+  _coap = new Coap(udp);
+
+  _coap->response(callback_response);
+  _coap->start();
+}
+
 
 bool DNSServer::start(const uint16_t port, const String &upstream_doh) {
   _upstream_doh = upstream_doh;
@@ -25,6 +44,11 @@ bool DNSServer::start(const uint16_t port, const String &upstream_doh) {
   return false;
 }
 
+void DNSServer::checkToResponse(){
+  _coap->loop();
+}
+
+
 void DNSServer::setTTL(const uint32_t &ttl) {
   _ttl = htonl(ttl);
 }
@@ -36,6 +60,7 @@ void DNSServer::stop() {
 
 void DNSServer::processRequest(AsyncUDPPacket &packet) {
   if (packet.length() >= sizeof(DNSHeader)) {
+    Serial.println("got request");
     unsigned char *_buffer = packet.data();
     DNSHeader *_dnsHeader = (DNSHeader *) _buffer;
     size_t qnameLength = 0;
@@ -50,6 +75,8 @@ void DNSServer::processRequest(AsyncUDPPacket &packet) {
             ) {
 
       String ipStr = askServerForIp(domainNameWithoutWwwPrefix);
+      ipStr = "1.1.1.1";
+
 
       if (ipStr.length() > 4) {
         IPAddress resolvedIP;
@@ -124,61 +151,68 @@ void DNSServer::replyWithCustomCode(AsyncUDPPacket &packet, size_t &_qnameLength
 }
 
 String DNSServer::askServerForIp(String url) {
-  WiFiClientSecure *client = new WiFiClientSecure;
+  int msgid = _coap->put(IPAddress(172, 16, 51, 161), 5688, "ip", "www.google.com");
 
-  // Ignore SSL certificate validation
-  client->setInsecure();
 
-  HTTPClient http;
-  String serverPath = "https://" + _upstream_doh + "/api/query";
+//  WiFiClientSecure *client = new WiFiClientSecure;
 
-  http.begin(*client, serverPath);
+  // // Ignore SSL certificate validation
+  // client->setInsecure();
 
-  http.addHeader("Content-Type", "application/json");
+  // HTTPClient http;
+  // String serverPath = "https://" + _upstream_doh + "/api/query";
 
-  String httpRequestData = "{\"type\":\"A\",\"query\":\"";
-  httpRequestData += url;
-  httpRequestData += "\"}";
+  // http.begin(*client, serverPath);
 
-  String payload = "{}";
+  // http.addHeader("Content-Type", "application/json");
 
-  int httpResponseCode = http.POST(httpRequestData);
+  // String httpRequestData = "{\"type\":\"A\",\"query\":\"";
+  // httpRequestData += url;
+  // httpRequestData += "\"}";
 
-  if (httpResponseCode > 0) {
-    if (httpResponseCode == HTTP_CODE_OK || httpResponseCode == HTTP_CODE_MOVED_PERMANENTLY) {
-      payload = http.getString();
-    }
-  } else {
-    DEBUG_OUTPUT.println(serverPath);
-    DEBUG_OUTPUT.println(httpRequestData);
-    DEBUG_OUTPUT.print("Error code: ");
-    DEBUG_OUTPUT.println(httpResponseCode);
-    return "";
-  }
-  http.end();
+  // String payload = "{}";
 
-  JSONVar res = JSON.parse(payload);
+  // int httpResponseCode = http.POST(httpRequestData);
 
-  if (JSON.typeof(res) == "undefined") {
-    DEBUG_OUTPUT.println(payload);
-    DEBUG_OUTPUT.println("Parsing input failed!");
-    return "";
-  }
+  // if (httpResponseCode > 0) {
+  //   if (httpResponseCode == HTTP_CODE_OK || httpResponseCode == HTTP_CODE_MOVED_PERMANENTLY) {
+  //     payload = http.getString();
+  //   }
+  // } else {
+  //   DEBUG_OUTPUT.println(serverPath);
+  //   DEBUG_OUTPUT.println(httpRequestData);
+  //   DEBUG_OUTPUT.print("Error code: ");
+  //   DEBUG_OUTPUT.println(httpResponseCode);
+  //   return "";
+  // }
+  // http.end();
 
-  if (strcmp(res["returnCode"], "NOERROR") != 0) {
-    DEBUG_OUTPUT.print("there is an error =>");
-    DEBUG_OUTPUT.println(payload);
-    return "";
-  }
+  // JSONVar res = JSON.parse(payload);
 
-  String result = res["response"];
-  String ip = getValueBetweenParentheses(result);
+  // if (JSON.typeof(res) == "undefined") {
+  //   DEBUG_OUTPUT.println(payload);
+  //   DEBUG_OUTPUT.println("Parsing input failed!");
+  //   return "";
+  // }
 
-  if (ip.length() < 4) {
-    return "";
-  }
+  // if (strcmp(res["returnCode"], "NOERROR") != 0) {
+  //   DEBUG_OUTPUT.print("there is an error =>");
+  //   DEBUG_OUTPUT.println(payload);
+  //   return "";
+  // }
 
-  return ip;
+  // String result = res["response"];
+  // String ip = getValueBetweenParentheses(result);
+
+  // if (ip.length() < 4) {
+  //   return "";
+  // }
+
+  // return ip;
+
+
+  return "";
+
 }
 
 

@@ -6,11 +6,14 @@
 #include <AsyncUDP.h>
 #include <WiFiClientSecure.h>
 #include <HTTPClient.h>
+#include "coap-simple.h"
 
 
 #define DNS_QR_QUERY 0
 #define DNS_QR_RESPONSE 1
 #define DNS_OPCODE_QUERY 0
+
+#define MAX_QUEUE_SIZE 50
 
 enum class DNSReplyCode : unsigned char
 {
@@ -42,6 +45,13 @@ struct DNSHeader
   uint16_t ARCount;          // number of resource entries
 };
 
+
+struct ResponseQueue{
+  uint16_t id;
+  AsyncUDPPacket *dnsPacket;
+  char * resolvedIP;
+} ;
+
 class DNSServer
 {
   public:
@@ -52,12 +62,16 @@ class DNSServer
     // stops the DNS server
     void stop();
 
+    void checkToResponse();
+
 
   private:
     AsyncUDP _udp;
     uint32_t _ttl;
     DNSReplyCode _errorReplyCodeDefault;
     String _upstream_doh;
+    Coap *_coap;
+    ResponseQueue _queue[MAX_QUEUE_SIZE];
 
     bool requestIncludesOnlyOneAQuestion(AsyncUDPPacket &packet, size_t _qnameLength);
     String getDomainNameWithoutWwwPrefix(unsigned char *start, size_t & _qnameLength);

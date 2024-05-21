@@ -6,7 +6,6 @@
 #include <HTTPClient.h>
 #include "./DNSServer.h"
 
-
 const char *AP_ssid = "Theos_DNS";
 const char *AP_password = "123654789";
 
@@ -47,6 +46,7 @@ const char *prepareServerName(const char *port);
 String localIp();
 
 String announceServerMyIp();
+
 
 void setup() {
   Serial.begin(115200);
@@ -91,24 +91,41 @@ void setup() {
     String serverIp = serverDnsAddress.substring(0, serverDnsAddress.indexOf(":"));
     _serverIp.fromString(serverIp);
   }
+
 }
 
 void loop() {
+  Serial.print("getFreeHeap: ");
+  Serial.println(ESP.getFreeHeap());
+  Serial.print("getMinFreeHeap: ");
+  Serial.println(ESP.getMinFreeHeap());
+  Serial.print("getHeapSize: ");
+  Serial.println(ESP.getHeapSize());
+  Serial.print("getMaxAllocHeap: ");
+  Serial.println(ESP.getMaxAllocHeap());
+
+  _dnsServer.checkToResponse();
+
+  sleep(1);
+
   if (!has_wifi_or_connect()) {
     _server.handleClient();
   } else {
-    IPAddress myIp;
-    myIp.fromString(localIp());
+    
+    // Serial.println(WiFi.status());
+    // Serial.println(WiFi.localIP());
 
-    if (_lastClinetIp != myIp) {
-      String res = announceServerMyIp(myIp);
-      if (res == "already added" || res == "added") {
-        _lastClinetIp.fromString(myIp.toString());
-        Serial.println("my ip is Saved and is authorized");
-      }
-    }
+    // IPAddress myIp;
+    // myIp.fromString(localIp());
 
-    sleep(30);
+    // if (_lastClinetIp != myIp) {
+    //   String res = announceServerMyIp(myIp);
+    //   if (res == "already added" || res == "added") {
+    //     _lastClinetIp.fromString(myIp.toString());
+    //     Serial.println("my ip is Saved and is authorized");
+    //   }
+    // }
+
   }
 }
 
