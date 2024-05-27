@@ -46,11 +46,22 @@ struct DNSHeader
 };
 
 
-struct ResponseQueue{
-  uint16_t id;
-  AsyncUDPPacket *dnsPacket;
-  char * resolvedIP;
-} ;
+class ResponseQueue{
+  public: 
+    uint16_t id;
+    uint8_t *dnsData;
+    IPAddress addr;
+    uint16_t port;
+    IPAddress resolvedIP;
+    bool ipHasSet;
+};
+
+class Responses {
+  public:
+   static inline  std::vector<ResponseQueue> queue;
+};
+
+
 
 class DNSServer
 {
@@ -64,6 +75,8 @@ class DNSServer
 
     void checkToResponse();
 
+    void setCOAP(Coap *coap);
+
 
   private:
     AsyncUDP _udp;
@@ -71,15 +84,14 @@ class DNSServer
     DNSReplyCode _errorReplyCodeDefault;
     String _upstream_doh;
     Coap *_coap;
-    ResponseQueue _queue[MAX_QUEUE_SIZE];
 
     bool requestIncludesOnlyOneAQuestion(AsyncUDPPacket &packet, size_t _qnameLength);
     String getDomainNameWithoutWwwPrefix(unsigned char *start, size_t & _qnameLength);
-    String askServerForIp(String url);
+    void askServerForIp(AsyncUDPPacket &packet,String url);
     String getValueBetweenParentheses(String str);
     void downCaseAndRemoveWwwPrefix(String &domainName);
     void processRequest(AsyncUDPPacket &packet);
-    void replyWithIP(AsyncUDPPacket &packet, IPAddress &resolvedIP, size_t &_qnameLength);
+    void replyWithIP(ResponseQueue &responseQueue, IPAddress &resolvedIP, size_t &_qnameLength);
     void replyWithCustomCode(AsyncUDPPacket &packet, size_t &_qnameLength, DNSReplyCode replyCode = DNSReplyCode::NonExistentDomain);
 
 };

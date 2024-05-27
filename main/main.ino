@@ -5,6 +5,10 @@
 #include <EEPROM.h>
 #include <HTTPClient.h>
 #include "./DNSServer.h"
+#include "coap-simple.h"
+
+WiFiUDP udp;
+Coap coap(udp);
 
 const char *AP_ssid = "Theos_DNS";
 const char *AP_password = "123654789";
@@ -86,6 +90,8 @@ void setup() {
       Serial.println("DNS server started");
     }
     Serial.println("-------------------------");
+
+    _dnsServer.setCOAP(&coap);
 
     String serverDnsAddress = String(_settings.server_ip);
     String serverIp = serverDnsAddress.substring(0, serverDnsAddress.indexOf(":"));
