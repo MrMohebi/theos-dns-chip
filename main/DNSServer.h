@@ -54,6 +54,7 @@ class ResponseQueue{
     IPAddress resolvedIP;
     bool ipHasSet;
     AsyncUDPMessage* msg;
+    size_t qnameLength;
 
     void setMessage(AsyncUDPMessage* message) {
         msg = message;
@@ -91,7 +92,7 @@ class DNSServer
 
     bool requestIncludesOnlyOneAQuestion(AsyncUDPPacket &packet, size_t _qnameLength);
     String getDomainNameWithoutWwwPrefix(unsigned char *start, size_t & _qnameLength);
-    void askServerForIp(AsyncUDPPacket &packet,String url);
+    void askServerForIp(AsyncUDPPacket &packet,String url, size_t &_qnameLength);
     String getValueBetweenParentheses(String str);
     void downCaseAndRemoveWwwPrefix(String &domainName);
     void processRequest(AsyncUDPPacket &packet);
