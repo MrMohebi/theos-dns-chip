@@ -4,16 +4,16 @@
 #include <lwip/def.h>
 #include <Arduino_JSON.h>
 #include <AsyncUDP.h>
-#include <WiFiClientSecure.h>
-#include <HTTPClient.h>
 #include "coap-simple.h"
+#include <vector>
 
 
 #define DNS_QR_QUERY 0
 #define DNS_QR_RESPONSE 1
 #define DNS_OPCODE_QUERY 0
 
-#define MAX_QUEUE_SIZE 50
+#define COAP_SERVER_PORT 5688
+
 
 enum class DNSReplyCode : unsigned char
 {
@@ -73,13 +73,9 @@ class DNSServer
   public:
     DNSServer();
     void setTTL(const uint32_t &ttl);
-
-    bool start(const uint16_t port, const String &upstream_doh);
-    // stops the DNS server
+    bool start(const uint16_t port, IPAddress &upstream_doh);
     void stop();
-
     void checkToResponse();
-
     void setCOAP(Coap *coap);
 
 
@@ -87,7 +83,7 @@ class DNSServer
     AsyncUDP _udp;
     uint32_t _ttl;
     DNSReplyCode _errorReplyCodeDefault;
-    String _upstream_doh;
+    IPAddress _upstream_doh;
     Coap *_coap;
 
     bool requestIncludesOnlyOneAQuestion(AsyncUDPPacket &packet, size_t _qnameLength);
@@ -97,7 +93,9 @@ class DNSServer
     void downCaseAndRemoveWwwPrefix(String &domainName);
     void processRequest(AsyncUDPPacket &packet);
     void replyWithIP(ResponseQueue &responseQueue);
-    void replyWithCustomCode(AsyncUDPPacket &packet, size_t &_qnameLength, DNSReplyCode replyCode = DNSReplyCode::NonExistentDomain);
+
+    void replyWithCustomCode(AsyncUDPPacket &packet, DNSReplyCode replyCode = DNSReplyCode::NonExistentDomain);
+    void replyWithCustomCode(ResponseQueue &responseQueue, DNSReplyCode replyCode = DNSReplyCode::NonExistentDomain);
 
 };
 #endif

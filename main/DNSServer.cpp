@@ -2,7 +2,6 @@
 #include "coap-simple.h"
 #include <algorithm>
 #include <vector>
-#include <cstdint>
 #define DEBUG_OUTPUT Serial
 
 #define SIZECLASS 2
@@ -40,7 +39,7 @@ DNSServer::DNSServer() {
 }
 
 
-bool DNSServer::start(const uint16_t port, const String &upstream_doh) {
+bool DNSServer::start(const uint16_t port, IPAddress &upstream_doh) {
   _upstream_doh = upstream_doh;
   if (_udp.listen(port)) {
     _udp.onPacket(
@@ -63,12 +62,12 @@ void DNSServer::checkToResponse() {
   _coap->loop();
   for(int i = 0; i<Responses::queue.size(); i++){
     if(Responses::queue[i].ipHasSet){
-      if(Responses::queue[i].resolvedIP.toString().length() > 4){
+      if(Responses::queue[i].resolvedIP.toString() != "0.0.0.0"){
         replyWithIP(Responses::queue[i]);
-        Responses::queue.erase(Responses::queue.begin() + i);
       }else{
-        // replyWithCustomCode(Responses::queue[i].dnsPacket, qnameLength, DNSReplyCode::NonExistentDomain);
+        replyWithCustomCode(Responses::queue[i], DNSReplyCode::NonExistentDomain);
       }
+      Responses::queue.erase(Responses::queue.begin() + i);
     }
   }
   
@@ -96,18 +95,8 @@ void DNSServer::processRequest(AsyncUDPPacket &packet) {
 
       askServerForIp(packet, domainNameWithoutWwwPrefix, qnameLength);
 
-      // if (ipStr.length() > 4) {
-      //   IPAddress resolvedIP;
-      //   resolvedIP.fromString(ipStr);
-
-      //   replyWithIP(packet, resolvedIP, qnameLength);
-
-      // } else {
-        
-      // }
-
     } else if (_dnsHeader->QR == DNS_QR_QUERY) {
-      replyWithCustomCode(packet, qnameLength, DNSReplyCode::Refused);
+      replyWithCustomCode(packet, DNSReplyCode::Refused);
     }
   }
 }
@@ -149,7 +138,19 @@ void DNSServer::replyWithIP(ResponseQueue &responseQueue) {
   // packet.send(msg);
 }
 
-void DNSServer::replyWithCustomCode(AsyncUDPPacket &packet, size_t &_qnameLength, DNSReplyCode replyCode) {
+void DNSServer::replyWithCustomCode(ResponseQueue &responseQueue, DNSReplyCode replyCode) {
+  DNSHeader *_dnsHeader = (DNSHeader *)responseQueue.msg->data();
+
+  _dnsHeader->QR = DNS_QR_RESPONSE;
+  _dnsHeader->RCode = (unsigned char)replyCode;
+  _dnsHeader->QDCount = 0;
+  _dnsHeader->ARCount = 0;
+
+  _udp.sendTo(*responseQueue.msg, responseQueue.addr, responseQueue.port);
+
+}
+
+void DNSServer::replyWithCustomCode(AsyncUDPPacket &packet, DNSReplyCode replyCode) {
   AsyncUDPMessage msg(sizeof(DNSHeader));
 
   msg.write(packet.data(), sizeof(DNSHeader));  // Question Section included.
@@ -164,17 +165,16 @@ void DNSServer::replyWithCustomCode(AsyncUDPPacket &packet, size_t &_qnameLength
 }
 
 void DNSServer::askServerForIp(AsyncUDPPacket &packet, String url, size_t &_qnameLength) {
-  uint16_t msgid = _coap->put(IPAddress(172, 16, 51, 161), 5688, "ip", url.c_str());
-  ResponseQueue item;
-  item.id = msgid;
-
+  uint16_t msgid = _coap->put(_upstream_doh, COAP_SERVER_PORT, "ip", url.c_str());
+  
   // DNS Header + qname + Type +  Class + qnamePointer  + TYPE + CLASS + TTL + Datalength ) IP
   // sizeof(DNSHeader) + _qnameLength  + 2*SIZECLASS +2*SIZETYPE + sizeof(_ttl) + DATLENTHG + sizeof(_resolvedIP)
   AsyncUDPMessage* newMessage = new AsyncUDPMessage(sizeof(DNSHeader) + _qnameLength + 2 * SIZECLASS + 2 * SIZETYPE + sizeof(_ttl) + DATALENGTH + 4); // ip v4
   newMessage->write(packet.data(), sizeof(DNSHeader) + _qnameLength + 4);  // Question Section included.
 
+  ResponseQueue item;
+  item.id = msgid;
   item.setMessage(newMessage);
-
   item.addr = packet.remoteIP();
   item.port = packet.remotePort();
   item.qnameLength = _qnameLength;

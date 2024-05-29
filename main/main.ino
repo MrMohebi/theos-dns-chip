@@ -85,17 +85,17 @@ void setup() {
   } else {
     Serial.println("wifi founded");
 
+    String serverDnsAddress = String(_settings.server_ip);
+    String serverIp = serverDnsAddress.substring(0, serverDnsAddress.indexOf(":"));
+    _serverIp.fromString(serverIp);
+
     Serial.println("-------------------------");
-    if (_dnsServer.start((const byte) 53, _settings.server_ip)) {
+    if (_dnsServer.start((const byte) 53, _serverIp)) {
       Serial.println("DNS server started");
     }
     Serial.println("-------------------------");
 
     _dnsServer.setCOAP(&coap);
-
-    String serverDnsAddress = String(_settings.server_ip);
-    String serverIp = serverDnsAddress.substring(0, serverDnsAddress.indexOf(":"));
-    _serverIp.fromString(serverIp);
   }
 
 }
