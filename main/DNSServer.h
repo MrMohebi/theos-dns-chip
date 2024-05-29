@@ -49,11 +49,15 @@ struct DNSHeader
 class ResponseQueue{
   public: 
     uint16_t id;
-    uint8_t *dnsData;
     IPAddress addr;
     uint16_t port;
     IPAddress resolvedIP;
     bool ipHasSet;
+    AsyncUDPMessage* msg;
+
+    void setMessage(AsyncUDPMessage* message) {
+        msg = message;
+    }
 };
 
 class Responses {
@@ -91,7 +95,7 @@ class DNSServer
     String getValueBetweenParentheses(String str);
     void downCaseAndRemoveWwwPrefix(String &domainName);
     void processRequest(AsyncUDPPacket &packet);
-    void replyWithIP(ResponseQueue &responseQueue, IPAddress &resolvedIP, size_t &_qnameLength);
+    void replyWithIP(ResponseQueue &responseQueue);
     void replyWithCustomCode(AsyncUDPPacket &packet, size_t &_qnameLength, DNSReplyCode replyCode = DNSReplyCode::NonExistentDomain);
 
 };

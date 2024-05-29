@@ -2,7 +2,7 @@
 #include "coap-simple.h"
 #include <algorithm>
 #include <vector>
-
+#include <cstdint>
 #define DEBUG_OUTPUT Serial
 
 #define SIZECLASS 2
@@ -54,6 +54,7 @@ bool DNSServer::start(const uint16_t port, const String &upstream_doh) {
     return true;
   }
   return false;
+  
 }
 
 void DNSServer::setCOAP(Coap *coap) {
@@ -72,7 +73,7 @@ void DNSServer::checkToResponse() {
 
 
       if(Responses::queue[i].resolvedIP.toString().length() > 4){
-        replyWithIP(Responses::queue[i], Responses::queue[i].resolvedIP, qnameLength);
+        replyWithIP(Responses::queue[i]);
         Responses::queue.erase(Responses::queue.begin() + i);
       }else{
         // replyWithCustomCode(Responses::queue[i].dnsPacket, qnameLength, DNSReplyCode::NonExistentDomain);
@@ -126,46 +127,39 @@ void DNSServer::processRequest(AsyncUDPPacket &packet) {
 }
 
 
-void DNSServer::replyWithIP(ResponseQueue &responseQueue, IPAddress &resolvedIP, size_t &_qnameLength) {
+void DNSServer::replyWithIP(ResponseQueue &responseQueue) {
   unsigned char paresedResolvedIP[4];
-  paresedResolvedIP[0] = resolvedIP[0];
-  paresedResolvedIP[1] = resolvedIP[1];
-  paresedResolvedIP[2] = resolvedIP[2];
-  paresedResolvedIP[3] = resolvedIP[3];
+  paresedResolvedIP[0] = responseQueue.resolvedIP[0];
+  paresedResolvedIP[1] = responseQueue.resolvedIP[1];
+  paresedResolvedIP[2] = responseQueue.resolvedIP[2];
+  paresedResolvedIP[3] = responseQueue.resolvedIP[3];
+  
 
-
-  // DNS Header + qname + Type +  Class + qnamePointer  + TYPE + CLASS + TTL + Datalength ) IP
-  // sizeof(DNSHeader) + _qnameLength  + 2*SIZECLASS +2*SIZETYPE + sizeof(_ttl) + DATLENTHG + sizeof(_resolvedIP)
-  AsyncUDPMessage msg(sizeof(DNSHeader) + _qnameLength + 2 * SIZECLASS + 2 * SIZETYPE + sizeof(_ttl) + DATALENGTH + sizeof(paresedResolvedIP));
-
-  msg.write(responseQueue.dnsData, sizeof(DNSHeader) + _qnameLength + 4);  // Question Section included.
-  DNSHeader *_dnsHeader = (DNSHeader *)msg.data();
+  DNSHeader *_dnsHeader = (DNSHeader *)responseQueue.msg->data();
 
   _dnsHeader->QR = DNS_QR_RESPONSE;
   _dnsHeader->ANCount = htons(1);
   _dnsHeader->QDCount = _dnsHeader->QDCount;
-  _dnsHeader->ARCount = 1;
+  _dnsHeader->ARCount = 0;
 
-  msg.write((uint8_t)192);  //  answer name is a pointer
-  msg.write((uint8_t)12);   // pointer to offset at 0x00c
+  responseQueue.msg->write((uint8_t)192);  //  answer name is a pointer
+  responseQueue.msg->write((uint8_t)12);   // pointer to offset at 0x00c
 
-  msg.write((uint8_t)0);  // 0x0001  answer is type A query (host address)
-  msg.write((uint8_t)1);
+  responseQueue.msg->write((uint8_t)0);  // 0x0001  answer is type A query (host address)
+  responseQueue.msg->write((uint8_t)1);
 
-  msg.write((uint8_t)0);  //0x0001 answer is class IN (internet address)
-  msg.write((uint8_t)1);
+  responseQueue.msg->write((uint8_t)0);  //0x0001 answer is class IN (internet address)
+  responseQueue.msg->write((uint8_t)1);
 
-  msg.write((uint8_t *)&_ttl, sizeof(_ttl));
+  responseQueue.msg->write((uint8_t *)&_ttl, sizeof(_ttl));
 
   // Length of RData is 4 bytes (because, in this case, RData is IPv4)
-  msg.write((uint8_t)0);
-  msg.write((uint8_t)4);
-  msg.write(paresedResolvedIP, sizeof(paresedResolvedIP));
+  responseQueue.msg->write((uint8_t)0);
+  responseQueue.msg->write((uint8_t)4);
+  responseQueue.msg->write(paresedResolvedIP, sizeof(paresedResolvedIP));
 
-  AsyncUDP x;
-  size_t y = x.sendTo(msg, responseQueue.addr, responseQueue.port);
-  Serial.println(y);
-
+  
+  _udp.sendTo(*responseQueue.msg, responseQueue.addr, responseQueue.port);
   // packet.send(msg);
 }
 
@@ -188,14 +182,14 @@ void DNSServer::askServerForIp(AsyncUDPPacket &packet, String url) {
   ResponseQueue item;
   item.id = msgid;
 
-  Serial.println("sssssssssssssssss");
-  Serial.println(sizeof(packet.data()));
-  Serial.println(*packet.data());
+  size_t qnameLength = 0;
 
-  int dataSize = sizeof(packet.data()); 
-  item.dnsData = new uint8_t[dataSize]; 
-  memcpy(item.dnsData, packet.data(), dataSize);
-  Serial.println(*item.dnsData);
+  // DNS Header + qname + Type +  Class + qnamePointer  + TYPE + CLASS + TTL + Datalength ) IP
+  // sizeof(DNSHeader) + _qnameLength  + 2*SIZECLASS +2*SIZETYPE + sizeof(_ttl) + DATLENTHG + sizeof(_resolvedIP)
+  AsyncUDPMessage* newMessage = new AsyncUDPMessage(sizeof(DNSHeader) + qnameLength + 2 * SIZECLASS + 2 * SIZETYPE + sizeof(_ttl) + DATALENGTH + 4); // ip v4
+  newMessage->write(packet.data(), sizeof(DNSHeader) + qnameLength + 4);  // Question Section included.
+
+  item.setMessage(newMessage);
 
   item.addr = packet.remoteIP();
   item.port = packet.remotePort();
