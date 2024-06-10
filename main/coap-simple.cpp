@@ -115,7 +115,6 @@ uint16_t Coap::sendPacket(CoapPacket &packet, IPAddress ip, int port) {
     _udp->beginPacket(ip, port);
     _udp->write(this->tx_buffer, packetSize);
     _udp->endPacket();
-
     return packet.messageid;
 }
 

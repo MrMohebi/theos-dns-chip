@@ -19,7 +19,7 @@ struct {
   char WIFI_ssid[32] = "";
   char WIFI_password[32] = "";
   char token[32] = "";
-  char server_ip[32] = ""; // with port of https dns server, example: 10.10.10.10:1443
+  char server_ip[32] = "";  // with port of https dns server, example: 10.10.10.10:1443
   char are_data_ok[3] = "ok";
 } _settings;
 
@@ -45,9 +45,9 @@ void handle_notFound();
 bool has_wifi_or_connect();
 
 
-const char *prepareServerName(const char *port);
+char *prepareServerName(const char *port);
 
-String localIp();
+IPAddress localIp();
 
 String announceServerMyIp();
 
@@ -90,14 +90,13 @@ void setup() {
     _serverIp.fromString(serverIp);
 
     Serial.println("-------------------------");
-    if (_dnsServer.start((const byte) 53, _serverIp)) {
+    if (_dnsServer.start((const byte)53, _serverIp)) {
       Serial.println("DNS server started");
     }
     Serial.println("-------------------------");
 
     _dnsServer.setCOAP(&coap);
   }
-
 }
 
 void loop() {
@@ -105,10 +104,6 @@ void loop() {
   Serial.println(ESP.getFreeHeap());
   Serial.print("getMinFreeHeap: ");
   Serial.println(ESP.getMinFreeHeap());
-  Serial.print("getHeapSize: ");
-  Serial.println(ESP.getHeapSize());
-  Serial.print("getMaxAllocHeap: ");
-  Serial.println(ESP.getMaxAllocHeap());
 
   _dnsServer.checkToResponse();
 
@@ -117,44 +112,38 @@ void loop() {
   if (!has_wifi_or_connect()) {
     _server.handleClient();
   } else {
-    
-    // Serial.println(WiFi.status());
-    // Serial.println(WiFi.localIP());
+    // IPAddress askedIp;
+    // askedIp = localIp();
 
-    // IPAddress myIp;
-    // myIp.fromString(localIp());
-
-    // if (_lastClinetIp != myIp) {
-    //   String res = announceServerMyIp(myIp);
+    // if (_lastClinetIp != askedIp) {
+    //   String res = announceServerMyIp(askedIp);
     //   if (res == "already added" || res == "added") {
-    //     _lastClinetIp.fromString(myIp.toString());
+    //     for(int i = 0; i < 4; i++){
+    //       _lastClinetIp[i] = askedIp[i];
+    //     }
     //     Serial.println("my ip is Saved and is authorized");
     //   }
     // }
-
   }
 }
 
-const char *prepareServerName(const char *port) {
+char *prepareServerName(const char *port) {
   char *serverName;
-  serverName = (char *) malloc(
-          strlen((const char *) "http://") + strlen(_serverIp.toString().c_str()) + strlen((const char *) ":") +
-          strlen(port) + 1);
-  strcpy(serverName, (const char *) "http://");
+  serverName = (char *)malloc(
+    strlen((char *)"http://") + strlen(_serverIp.toString().c_str()) + strlen((char *)":") + strlen(port) + 1);
+  strcpy(serverName, (char *)"http://");
   strcat(serverName, _serverIp.toString().c_str());
-  strcat(serverName, (const char *) ":");
+  strcat(serverName, (char *)":");
   strcat(serverName, port);
 
-  return (const char *) serverName;
+  return serverName;
 }
 
 
 String announceServerMyIp(IPAddress &newIp) {
-  const char *baseServerName = prepareServerName(_serverAuthPort);
+  char *baseServerName = prepareServerName(_serverAuthPort);
   String pathAndParams = "/tap-in?token=" + String(_settings.token) + "&ip=" + newIp.toString();
   String serverName = String(baseServerName) + pathAndParams;
-
-  Serial.println(serverName);
 
   HTTPClient http;
   http.begin(serverName.c_str());
@@ -170,30 +159,32 @@ String announceServerMyIp(IPAddress &newIp) {
   }
 
   http.end();
+  free(baseServerName);
 
   return payload;
 }
 
 
-String localIp() {
-  const char *serverName = prepareServerName(_serverIpAskPort);
+IPAddress localIp() {
+  char *serverName = prepareServerName(_serverIpAskPort);
+  IPAddress ip ;
 
   HTTPClient http;
   http.begin(serverName);
 
   int httpResponseCode = http.GET();
 
-  String payload = "";
   if (httpResponseCode > 0) {
-    payload = http.getString();
+    ip.fromString(http.getString());
   } else {
     Serial.print("Error code to get local ip: ");
     Serial.println(httpResponseCode);
   }
 
   http.end();
+  free(serverName);
 
-  return payload;
+  return ip;
 }
 
 
@@ -209,13 +200,7 @@ void handle_index() {
 
 void handle_saveSettings() {
   if (
-          !_server.hasArg("token") || !_server.hasArg("serverIp") || !_server.hasArg("ssid") ||
-          !_server.hasArg("ssid") ||
-          _server.arg("token") == NULL || _server.arg("serverIp") == NULL || _server.arg("ssid") == NULL ||
-          _server.arg("password") == NULL ||
-          sizeof(_server.arg("token")) >= 32 || sizeof(_server.arg("serverIp")) >= 32 ||
-          sizeof(_server.arg("ssid")) >= 32 || sizeof(_server.arg("password")) >= 32
-          ) {
+    !_server.hasArg("token") || !_server.hasArg("serverIp") || !_server.hasArg("ssid") || !_server.hasArg("ssid") || _server.arg("token") == NULL || _server.arg("serverIp") == NULL || _server.arg("ssid") == NULL || _server.arg("password") == NULL || sizeof(_server.arg("token")) >= 32 || sizeof(_server.arg("serverIp")) >= 32 || sizeof(_server.arg("ssid")) >= 32 || sizeof(_server.arg("password")) >= 32) {
     _server.send(400, "text/plain", "400: Invalid Request");
     return;
   }
@@ -274,7 +259,4 @@ bool has_wifi_or_connect() {
   }
 
   return false;
-
 }
-
-

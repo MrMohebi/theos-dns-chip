@@ -9,9 +9,6 @@
 #define DATALENGTH 4
 
 
-
-
-
 void callback_response(CoapPacket &packet, IPAddress ip, int port) {
   char p[packet.payloadlen + 1];
   memcpy(p, packet.payload, packet.payloadlen);
@@ -67,6 +64,7 @@ void DNSServer::checkToResponse() {
       }else{
         replyWithCustomCode(Responses::queue[i], DNSReplyCode::NonExistentDomain);
       }
+      free(Responses::queue[i].msg);
       Responses::queue.erase(Responses::queue.begin() + i);
     }
   }
