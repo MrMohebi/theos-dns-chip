@@ -10,9 +10,7 @@
 
 
 void callback_response(CoapPacket &packet, IPAddress ip, int port) {
-  char p[packet.payloadlen + 1];
-  memcpy(p, packet.payload, packet.payloadlen);
-  p[packet.payloadlen] = NULL;
+  String payload(packet.payload, packet.payloadlen);
 
   uint16_t msgId = packet.messageid;
   auto foundElement = std::find_if(
@@ -22,7 +20,7 @@ void callback_response(CoapPacket &packet, IPAddress ip, int port) {
   
   if (foundElement != Responses::queue.end()) {
     IPAddress resolvedIP;
-    resolvedIP.fromString((char *)p);
+    resolvedIP.fromString(payload.c_str());
     
     (*foundElement).resolvedIP = resolvedIP;
     
@@ -57,18 +55,20 @@ void DNSServer::setCOAP(Coap *coap) {
 
 void DNSServer::checkToResponse() {
   _coap->loop();
-  for(int i = 0; i<Responses::queue.size(); i++){
-    if(Responses::queue[i].ipHasSet){
-      if(Responses::queue[i].resolvedIP.toString() != "0.0.0.0"){
-        replyWithIP(Responses::queue[i]);
-      }else{
-        replyWithCustomCode(Responses::queue[i], DNSReplyCode::NonExistentDomain);
+  
+  for (auto it = Responses::queue.begin(); it != Responses::queue.end();) {
+    if ((*it).ipHasSet) {
+      if ((*it).resolvedIP.toString() != "0.0.0.0") {
+        replyWithIP(*it);  
+      } else {
+        replyWithCustomCode(*it, DNSReplyCode::NonExistentDomain);  
       }
-      free(Responses::queue[i].msg);
-      Responses::queue.erase(Responses::queue.begin() + i);
+      free((*it).msg);
+      it = Responses::queue.erase(it);
+    } else {
+      ++it;  
     }
   }
-  
 }
 
 
@@ -133,7 +133,6 @@ void DNSServer::replyWithIP(ResponseQueue &responseQueue) {
 
   
   _udp.sendTo(*responseQueue.msg, responseQueue.addr, responseQueue.port);
-  // packet.send(msg);
 }
 
 void DNSServer::replyWithCustomCode(ResponseQueue &responseQueue, DNSReplyCode replyCode) {
