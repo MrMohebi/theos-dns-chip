@@ -41,8 +41,10 @@ bool DNSServer::start(const uint16_t port, IPAddress &upstream_doh) {
       [&](AsyncUDPPacket &packet) {
         this->processRequest(packet);
       });
+      _isStarted = true;
     return true;
   }
+  _isStarted = false;
   return false;
   
 }
@@ -54,6 +56,10 @@ void DNSServer::setCOAP(Coap *coap) {
 }
 
 void DNSServer::checkToResponse() {
+  if(!_isStarted){
+    return;
+  }
+
   _coap->loop();
   
   for (auto it = Responses::queue.begin(); it != Responses::queue.end();) {
@@ -63,7 +69,7 @@ void DNSServer::checkToResponse() {
       } else {
         replyWithCustomCode(*it, DNSReplyCode::NonExistentDomain);  
       }
-      free((*it).msg);
+      delete (*it).msg;
       it = Responses::queue.erase(it);
     } else {
       ++it;  

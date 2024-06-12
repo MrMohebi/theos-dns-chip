@@ -51,6 +51,9 @@ IPAddress localIp();
 
 String announceServerMyIp();
 
+void registerMyIp( void * pvParameters );
+
+TaskHandle_t registerMyIp_task;
 
 void setup() {
   Serial.begin(115200);
@@ -97,34 +100,54 @@ void setup() {
 
     _dnsServer.setCOAP(&coap);
   }
+
+
+    xTaskCreatePinnedToCore(
+                    registerMyIp,        /* Task function. */
+                    "registerMyIp",      /* name of task. */
+                    10000,               /* Stack size of task */
+                    NULL,                /* parameter of the task */
+                    1,                   /* priority of the task */
+                    &registerMyIp_task,  /* Task handle to keep track of created task */
+                    0);                  /* pin task to core 0 */   
+
 }
 
 void loop() {
-  Serial.print("getFreeHeap: ");
-  Serial.println(ESP.getFreeHeap());
-  Serial.print("getMinFreeHeap: ");
-  Serial.println(ESP.getMinFreeHeap());
 
   _dnsServer.checkToResponse();
 
-  sleep(1);
-
   if (!has_wifi_or_connect()) {
     _server.handleClient();
-  } else {
-    // IPAddress askedIp;
-    // askedIp = localIp();
-
-    // if (_lastClinetIp != askedIp) {
-    //   String res = announceServerMyIp(askedIp);
-    //   if (res == "already added" || res == "added") {
-    //     for(int i = 0; i < 4; i++){
-    //       _lastClinetIp[i] = askedIp[i];
-    //     }
-    //     Serial.println("my ip is Saved and is authorized");
-    //   }
-    // }
   }
+
+  // sleepms(1);
+  // Serial.print("getFreeHeap: ");
+  // Serial.println(ESP.getFreeHeap());
+  // Serial.print("getMinFreeHeap: ");
+  // Serial.println(ESP.getMinFreeHeap());
+}
+
+void registerMyIp( void * pvParameters ){
+  Serial.print("registerMyIp loop core =>");
+  Serial.println(xPortGetCoreID());
+  for(;;){
+    if(has_wifi_or_connect()){
+      IPAddress askedIp;
+      askedIp = localIp();
+
+      if (_lastClinetIp != askedIp) {
+        String res = announceServerMyIp(askedIp);
+        if (res == "already added" || res == "added") {
+          for(int i = 0; i < 4; i++){
+            _lastClinetIp[i] = askedIp[i];
+          }
+          Serial.println("my ip is Saved and is authorized");
+        }
+      }
+    }
+    delay(30000);
+  } 
 }
 
 char *prepareServerName(const char *port) {

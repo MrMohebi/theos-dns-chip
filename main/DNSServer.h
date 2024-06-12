@@ -85,6 +85,7 @@ class DNSServer
     DNSReplyCode _errorReplyCodeDefault;
     IPAddress _upstream_doh;
     Coap *_coap;
+    bool _isStarted;
 
     bool requestIncludesOnlyOneAQuestion(AsyncUDPPacket &packet, size_t _qnameLength);
     String getDomainNameWithoutWwwPrefix(unsigned char *start, size_t & _qnameLength);
