@@ -21,9 +21,7 @@ void callback_response(CoapPacket &packet, IPAddress ip, int port) {
   if (foundElement != Responses::queue.end()) {
     IPAddress resolvedIP;
     resolvedIP.fromString(payload.c_str());
-    
     (*foundElement).resolvedIP = resolvedIP;
-    
     (*foundElement).ipHasSet = true;
   }
 }
@@ -61,20 +59,28 @@ void DNSServer::checkToResponse() {
   }
 
   _coap->loop();
-  
-  for (auto it = Responses::queue.begin(); it != Responses::queue.end();) {
-    if ((*it).ipHasSet) {
-      if ((*it).resolvedIP.toString() != "0.0.0.0") {
-        replyWithIP(*it);  
-      } else {
-        replyWithCustomCode(*it, DNSReplyCode::NonExistentDomain);  
-      }
-      delete (*it).msg;
-      it = Responses::queue.erase(it);
-    } else {
-      ++it;  
-    }
-  }
+
+  Responses::queue.erase(
+    std::remove_if(
+        Responses::queue.begin(), 
+        Responses::queue.end(),
+        [this](ResponseQueue  & response) { 
+          if (!response.ipHasSet) {
+            return false;  // Keep responses without ip set
+          }
+          if (response.resolvedIP.toString() == "0.0.0.0") {
+            replyWithCustomCode(response, DNSReplyCode::NonExistentDomain);
+            delete response.msg;
+            return true;  // Remove responses with invalid ip
+          }
+          replyWithIP(response);
+          delete response.msg;
+          return true;  // Remove responses with valid ip (after processing)
+           
+        }
+    ), 
+    Responses::queue.end()
+  ); 
 }
 
 
@@ -181,6 +187,7 @@ void DNSServer::askServerForIp(AsyncUDPPacket &packet, String url, size_t &_qnam
   item.addr = packet.remoteIP();
   item.port = packet.remotePort();
   item.qnameLength = _qnameLength;
+  item.ipHasSet = false;
   Responses::queue.push_back(item);
 }
 
