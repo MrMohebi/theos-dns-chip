@@ -1,6 +1,10 @@
 #include <Arduino.h>
 #include <WiFi.h>
 #include <WebServer.h>
+#include <SPI.h>
+#include <Wire.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
 #include <String.h>
 #include <EEPROM.h>
 #include <HTTPClient.h>
@@ -32,8 +36,20 @@ const char *_serverIpAskPort = "1234";
 
 IPAddress _lastClinetIp;
 
+#define SCREEN_WIDTH  128 
+#define SCREEN_HEIGHT 32
+#define OLED_RESET    -1 
+#define SCREEN_ADDRESS 0x3C
+
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
 WebServer _server(80);
+
+void show_splash_screen();
+
+void show_wifi_details();
+
+void show_dns_server_address(String ipAddress);
 
 void handle_index();
 
@@ -60,6 +76,12 @@ void setup() {
   Serial.println("\n\n\n");
   delay(100);
 
+  if(!display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS)) { 
+    Serial.println(F("SSD1306 allocation failed"));
+  }
+  display.setTextColor(WHITE);
+  show_splash_screen();
+
   EEPROM.begin(sizeof(_settings));
   unsigned int addr = 0;
   EEPROM.get(addr, _settings);
@@ -67,6 +89,7 @@ void setup() {
   Serial.println(_settings.server_ip);
 
   if (!has_wifi_or_connect()) {
+    show_wifi_details();
 
     IPAddress local_ip(10, 90, 90, 10);
     IPAddress gateway(10, 90, 90, 10);
@@ -273,6 +296,7 @@ bool has_wifi_or_connect() {
     Serial.print("IP address:\t");
     Serial.println(WiFi.localIP());
     IS_CONNECTED_TO_WIFI = true;
+    show_dns_server_address(WiFi.localIP().toString());
     return true;
   } else {
     Serial.println('\n');
@@ -283,3 +307,41 @@ bool has_wifi_or_connect() {
 
   return false;
 }
+
+// --------------------- LCD --------------------
+void show_dns_server_address(String ipAddress) {
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setCursor(0, 0);
+  display.println("Set below address as your DNS server:");
+  display.setCursor(0, 25);
+  display.print("==> ");
+  display.print(ipAddress);
+  display.println(" <==");
+  display.display(); 
+}
+
+void show_splash_screen() {
+  display.clearDisplay();
+  display.setTextSize(2);
+  display.setCursor(0, 16);
+  display.println("Theos DNS");
+  display.display();
+}
+
+
+void show_wifi_details() {
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setCursor(0, 0);
+  display.print("SSID: ");
+  display.println(AP_ssid);
+  display.setCursor(0, 12);
+  display.print("PASS: ");
+  display.println(AP_password);
+  display.setCursor(0, 24);
+  display.println("-> http://10.90.90.10");
+  display.display();
+}
+
+
